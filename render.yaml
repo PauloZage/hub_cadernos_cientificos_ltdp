@@ -1,0 +1,26 @@
+# Blueprint Render — Hub LTDP (estrutura plana: todos os ficheiros na raiz do repositório)
+services:
+  - type: web
+    name: ltdp-hub
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: LTDP_JWT_SECRET
+        generateValue: true
+      - key: LTDP_DIRETOR_EMAIL
+        value: diretor@ltdp.ao
+      - key: LTDP_DIRETOR_SENHA
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ltdp-hub-db
+          property: connectionString
+
+databases:
+  - name: ltdp-hub-db
+    plan: free
+    databaseName: ltdp_hub
+    user: ltdp

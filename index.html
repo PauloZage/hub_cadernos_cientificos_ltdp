@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="pt-AO">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hub de Cadernos Científicos — LTDP</title>
+<style>
+  /* Sem fontes externas: a página carrega num único pedido (redes instáveis) */
+  :root{
+    --azul:#1F4E79; --azul-escuro:#163A5C; --azul-claro:#D9E2F3;
+    --papel:#FAFBFC; --tinta:#1C2530; --cinza:#6B7785; --linha:#D7DEE7;
+    --verde:#1E7B45; --verde-bg:#E3F4E9; --vermelho:#B3261E; --vermelho-bg:#FBE9E7;
+    --ambar:#8A6D00; --ambar-bg:#FFF6D6; --selo:#0E5A8A;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Segoe UI,system-ui,-apple-system,Arial,sans-serif;background:var(--papel);color:var(--tinta);font-size:15px}
+  .mono{font-family:Consolas,Menlo,monospace}
+  header{background:var(--azul);color:#fff;padding:14px 22px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+  header h1{font-size:1.05rem;font-weight:600;letter-spacing:.3px}
+  header small{display:block;font-weight:400;opacity:.85;font-size:.74rem;margin-top:2px}
+  .sessao{font-size:.8rem;display:flex;align-items:center;gap:10px}
+  main{max-width:1080px;margin:0 auto;padding:26px 18px 60px}
+  .escondido{display:none!important}
+  h2{color:var(--azul);font-size:1.15rem;margin-bottom:14px}
+  .barra{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+  button{background:var(--azul);color:#fff;border:0;border-radius:6px;padding:9px 16px;font-size:.86rem;cursor:pointer;font-family:inherit}
+  button:hover{background:var(--azul-escuro)}
+  button:focus-visible{outline:3px solid #8FB4DC;outline-offset:2px}
+  button.suave{background:#fff;color:var(--azul);border:1px solid var(--azul)}
+  button.suave:hover{background:var(--azul-claro)}
+  button.pequeno{padding:5px 10px;font-size:.78rem}
+  input,textarea,select{width:100%;padding:9px 10px;border:1px solid var(--linha);border-radius:6px;font-family:inherit;font-size:.9rem;background:#fff}
+  input:focus,textarea:focus,select:focus{outline:2px solid var(--azul);border-color:var(--azul)}
+  label{display:block;font-size:.78rem;font-weight:600;color:var(--cinza);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.4px}
+  .cartao{background:#fff;border:1px solid var(--linha);border-radius:10px;padding:20px;margin-bottom:14px}
+  .login-caixa{max-width:400px;margin:7vh auto}
+  .login-caixa .selo-topo{text-align:center;margin-bottom:18px;color:var(--azul)}
+  .login-caixa .selo-topo b{font-size:1.25rem;display:block}
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--linha);border-radius:10px;overflow:hidden}
+  th{background:var(--azul);color:#fff;text-align:left;padding:10px 12px;font-size:.76rem;text-transform:uppercase;letter-spacing:.4px}
+  td{padding:10px 12px;border-top:1px solid var(--linha);font-size:.87rem;vertical-align:top}
+  tr.clicavel{cursor:pointer}
+  tr.clicavel:hover td{background:var(--azul-claro)}
+  .trl{display:inline-flex;gap:2px;align-items:center}
+  .trl i{width:9px;height:9px;border-radius:2px;background:var(--linha);display:inline-block}
+  .trl i.on{background:var(--azul)}
+  .trl b{margin-left:6px;font-size:.8rem;color:var(--azul)}
+  .etq{display:inline-block;padding:2px 9px;border-radius:20px;font-size:.72rem;font-weight:600}
+  .etq.activo{background:var(--verde-bg);color:var(--verde)}
+  .etq.suspenso{background:var(--ambar-bg);color:var(--ambar)}
+  .etq.concluido{background:var(--azul-claro);color:var(--azul)}
+  .etq.arquivado{background:#EEE;color:var(--cinza)}
+  /* Assinatura visual do sistema: o selo de integridade da cadeia de hashes */
+  .selo{border-left:4px solid var(--selo);background:#F2F7FB;padding:8px 12px;border-radius:0 6px 6px 0;font-size:.74rem;color:var(--selo);word-break:break-all;margin-top:8px}
+  .selo b{display:block;font-size:.68rem;text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px}
+  .selo.ok{border-color:var(--verde);background:var(--verde-bg);color:var(--verde)}
+  .selo.quebra{border-color:var(--vermelho);background:var(--vermelho-bg);color:var(--vermelho)}
+  .entrada{border:1px solid var(--linha);border-radius:10px;background:#fff;padding:16px 18px;margin-bottom:12px}
+  .entrada .meta{display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-size:.78rem;color:var(--cinza);margin-bottom:8px}
+  .entrada h4{font-size:.78rem;color:var(--cinza);text-transform:uppercase;letter-spacing:.4px;margin:10px 0 3px}
+  .entrada p{white-space:pre-wrap;font-size:.9rem}
+  .aviso{padding:10px 14px;border-radius:8px;font-size:.84rem;margin:10px 0}
+  .aviso.erro{background:var(--vermelho-bg);color:var(--vermelho)}
+  .aviso.ok{background:var(--verde-bg);color:var(--verde)}
+  .grelha2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+  @media(max-width:640px){.grelha2{grid-template-columns:1fr}}
+  .rodape-ctx{margin-top:30px;font-size:.74rem;color:var(--cinza);text-align:center}
+  dialog{border:0;border-radius:12px;padding:24px;max-width:560px;width:92%;box-shadow:0 18px 50px rgba(20,40,70,.25)}
+  dialog::backdrop{background:rgba(22,45,70,.45)}
+  .filtros{display:flex;gap:8px;flex-wrap:wrap}
+  .filtros select,.filtros input{width:auto;min-width:150px;font-size:.82rem;padding:7px 9px}
+  a.lnk{color:var(--azul)}
+  @media (prefers-reduced-motion: no-preference){
+    .entrada,.cartao{animation:surge .18s ease-out}
+    @keyframes surge{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Hub de Cadernos Científicos — LTDP</h1>
+    <small>Laboratório Tecnológico de Desenvolvimento e Pesquisa · Lubango, Huíla, Angola · WAT (UTC+1)</small>
+  </div>
+  <div class="sessao escondido" id="sessao">
+    <span id="quem"></span>
+    <button class="suave pequeno" onclick="sair()">Terminar sessão</button>
+  </div>
+</header>
+
+<main>
+
+<!-- ======================= LOGIN ======================= -->
+<section id="vista-login">
+  <div class="login-caixa cartao">
+    <div class="selo-topo"><b>Entrada no Hub</b><span style="font-size:.8rem;color:var(--cinza)">Cadernos de laboratório electrónicos do LTDP</span></div>
+    <form onsubmit="entrar(event)">
+      <label for="lg-email">Email LTDP</label>
+      <input id="lg-email" type="email" required autocomplete="username" placeholder="nome@ltdp.ao">
+      <label for="lg-senha">Senha</label>
+      <input id="lg-senha" type="password" required autocomplete="current-password">
+      <div id="lg-erro"></div>
+      <button style="width:100%;margin-top:18px" type="submit">Entrar</button>
+    </form>
+  </div>
+</section>
+
+<!-- ===================== DASHBOARD ===================== -->
+<section id="vista-painel" class="escondido">
+  <div class="barra">
+    <h2>Cadernos de invenção</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="abrirModalCaderno()">+ Abrir caderno</button>
+      <button class="suave" id="btn-export" onclick="exportarExcel()">Exportar Excel</button>
+      <button class="suave escondido" id="btn-util" onclick="dlgUtil.showModal()">Utilizadores</button>
+    </div>
+  </div>
+  <div class="filtros cartao" style="padding:12px 16px">
+    <input id="f-area" placeholder="Filtrar por área tecnológica" oninput="carregarCadernos()">
+    <select id="f-trl" onchange="carregarCadernos()">
+      <option value="">TRL — todos</option>
+      <option value="3">TRL ≥ 3</option><option value="5">TRL ≥ 5</option><option value="7">TRL ≥ 7</option>
+    </select>
+    <select id="f-estado" onchange="carregarCadernos()">
+      <option value="">Estado — todos</option>
+      <option>ACTIVO</option><option>SUSPENSO</option><option>CONCLUIDO</option><option>ARQUIVADO</option>
+    </select>
+  </div>
+  <div id="lista-cadernos"></div>
+</section>
+
+<!-- ================ DETALHE DO CADERNO ================= -->
+<section id="vista-caderno" class="escondido">
+  <div class="barra">
+    <button class="suave" onclick="mostrar('painel');carregarCadernos()">← Voltar ao painel</button>
+    <button onclick="abrirModalEntrada()">+ Registar progresso de hoje</button>
+  </div>
+  <div class="cartao" id="cab-caderno"></div>
+  <h2 style="margin-top:22px">Entradas científicas (cadeia de auditoria)</h2>
+  <div id="lista-entradas"></div>
+</section>
+
+<div class="rodape-ctx">Todos os registos são selados com SHA-256 e encadeados — prova de anterioridade para efeitos de patente (IAPI). Caderno imutável: correcções fazem-se com nova entrada.</div>
+</main>
+
+<!-- ===================== MODAIS ===================== -->
+<dialog id="dlgCaderno">
+  <h2>Abrir novo caderno de invenção</h2>
+  <form onsubmit="criarCaderno(event)">
+    <label>Título da invenção</label><input id="c-titulo" required>
+    <div class="grelha2">
+      <div><label>Investigador principal</label><input id="c-inv" required></div>
+      <div><label>Área tecnológica</label><input id="c-area" required placeholder="ex.: Energias Renováveis"></div>
+      <div><label>Data de início</label><input id="c-data" type="date" required></div>
+      <div><label>Status TRL (1–9)</label><input id="c-trl" type="number" min="1" max="9" value="1" required></div>
+    </div>
+    <label>Código de patente previsto (opcional)</label><input id="c-pat" placeholder="IAPI-AO/2026/____">
+    <div id="c-erro"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+      <button type="button" class="suave" onclick="dlgCaderno.close()">Cancelar</button>
+      <button type="submit">Abrir caderno</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgEntrada">
+  <h2>Registar progresso científico</h2>
+  <p style="font-size:.8rem;color:var(--cinza);margin-top:4px">Data/hora e selo SHA-256 são atribuídos pelo Hub em WAT (UTC+1).</p>
+  <form onsubmit="criarEntrada(event)">
+    <label>Metodologia</label><textarea id="e-met" rows="3" required></textarea>
+    <label>Resultados brutos</label><textarea id="e-res" rows="4" required></textarea>
+    <label>Link do repositório de código (opcional)</label><input id="e-link" type="url" placeholder="https://github.com/ltdp/...">
+    <label>Email da testemunha (opcional)</label><input id="e-test" type="email" placeholder="colega@ltdp.ao">
+    <div id="e-erro"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+      <button type="button" class="suave" onclick="dlgEntrada.close()">Cancelar</button>
+      <button type="submit">Selar e registar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgUtil">
+  <h2>Criar utilizador do LTDP</h2>
+  <form onsubmit="criarUtilizador(event)">
+    <label>Nome completo</label><input id="u-nome" required>
+    <div class="grelha2">
+      <div><label>Email</label><input id="u-email" type="email" required></div>
+      <div><label>Perfil</label>
+        <select id="u-perfil"><option>INVESTIGADOR</option><option>TESTEMUNHA</option><option>DIRETOR</option></select>
+      </div>
+    </div>
+    <label>Senha inicial</label><input id="u-senha" type="text" required minlength="6">
+    <div id="u-erro"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+      <button type="button" class="suave" onclick="dlgUtil.close()">Fechar</button>
+      <button type="submit">Criar utilizador</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const API = "";              // mesma origem (a API serve esta página)
+let token = localStorage.getItem("ltdp_token") || "";
+let perfil = localStorage.getItem("ltdp_perfil") || "";
+let emailSessao = localStorage.getItem("ltdp_email") || "";
+let cadernoActual = null;
+
+const $ = id => document.getElementById(id);
+function mostrar(v){
+  for (const s of ["login","painel","caderno"]) $("vista-"+s).classList.toggle("escondido", s!==v);
+  $("sessao").classList.toggle("escondido", v==="login");
+}
+function aviso(id, msg, ok=false){
+  $(id).innerHTML = msg ? `<div class="aviso ${ok?'ok':'erro'}">${msg}</div>` : "";
+}
+async function api(caminho, opcoes={}){
+  opcoes.headers = Object.assign({"Content-Type":"application/json"}, opcoes.headers||{});
+  if (token) opcoes.headers["Authorization"] = "Bearer "+token;
+  const r = await fetch(API+caminho, opcoes);
+  if (r.status === 401){ sair(); throw new Error("Sessão expirada — entre novamente."); }
+  if (!r.ok){
+    let d = "Erro "+r.status;
+    try { d = (await r.json()).detail || d; } catch(_){}
+    throw new Error(d);
+  }
+  return r;
+}
+function escapar(t){ const d=document.createElement("div"); d.textContent=t??""; return d.innerHTML; }
+
+/* ----------------------------- Sessão ----------------------------- */
+async function entrar(ev){
+  ev.preventDefault(); aviso("lg-erro","");
+  try{
+    const corpo = new URLSearchParams({username:$("lg-email").value, password:$("lg-senha").value});
+    const r = await fetch(API+"/auth/login",{method:"POST",body:corpo});
+    if(!r.ok) throw new Error("Email ou senha incorrectos.");
+    const d = await r.json();
+    token=d.access_token; perfil=d.perfil; emailSessao=$("lg-email").value;
+    localStorage.setItem("ltdp_token",token); localStorage.setItem("ltdp_perfil",perfil);
+    localStorage.setItem("ltdp_email",emailSessao);
+    iniciar();
+  }catch(e){ aviso("lg-erro", e.message); }
+}
+function sair(){
+  token=perfil=emailSessao=""; localStorage.clear(); mostrar("login");
+}
+function iniciar(){
+  $("quem").textContent = `${emailSessao} · ${perfil}`;
+  $("btn-util").classList.toggle("escondido", perfil!=="DIRETOR");
+  $("btn-export").classList.toggle("escondido", perfil!=="DIRETOR");
+  mostrar("painel"); carregarCadernos();
+}
+
+/* ---------------------------- Cadernos ---------------------------- */
+function barraTRL(n){
+  let s = '<span class="trl">';
+  for(let i=1;i<=9;i++) s += `<i class="${i<=n?'on':''}"></i>`;
+  return s + `<b>TRL ${n}/9</b></span>`;
+}
+async function carregarCadernos(){
+  const p = new URLSearchParams();
+  if($("f-area").value) p.set("area",$("f-area").value);
+  if($("f-trl").value) p.set("trl_min",$("f-trl").value);
+  if($("f-estado").value) p.set("estado",$("f-estado").value);
+  try{
+    const d = await (await api("/cadernos?"+p)).json();
+    if(!d.cadernos.length){
+      $("lista-cadernos").innerHTML = '<div class="cartao">Ainda não há cadernos com estes critérios. Abra o primeiro caderno de invenção do LTDP.</div>';
+      return;
+    }
+    let html = '<table><thead><tr><th>Código LTDP</th><th>Invenção</th><th>Investigador</th><th>Área</th><th>Maturidade</th><th>Estado</th><th>Entradas</th></tr></thead><tbody>';
+    for(const c of d.cadernos){
+      html += `<tr class="clicavel" onclick='abrirCaderno(${JSON.stringify(c.id_caderno)})'>
+        <td class="mono" style="font-size:.78rem">${escapar(c.codigo_ltdp)}</td>
+        <td><b>${escapar(c.titulo_invencao)}</b></td>
+        <td>${escapar(c.investigador_principal)}</td>
+        <td>${escapar(c.area_tecnologica)}</td>
+        <td>${barraTRL(c.status_trl)}</td>
+        <td><span class="etq ${c.estado.toLowerCase()}">${c.estado}</span></td>
+        <td>${c.total_entradas}</td></tr>`;
+    }
+    $("lista-cadernos").innerHTML = html + "</tbody></table>";
+  }catch(e){ $("lista-cadernos").innerHTML = `<div class="aviso erro">${e.message}</div>`; }
+}
+function abrirModalCaderno(){ aviso("c-erro",""); dlgCaderno.showModal(); }
+async function criarCaderno(ev){
+  ev.preventDefault(); aviso("c-erro","");
+  try{
+    await api("/cadernos",{method:"POST",body:JSON.stringify({
+      titulo_invencao:$("c-titulo").value, investigador_principal:$("c-inv").value,
+      area_tecnologica:$("c-area").value, data_inicio:$("c-data").value,
+      status_trl:+$("c-trl").value, codigo_patente_previsto:$("c-pat").value||null })});
+    dlgCaderno.close(); carregarCadernos();
+  }catch(e){ aviso("c-erro", e.message); }
+}
+
+/* --------------------------- Detalhe ------------------------------ */
+async function abrirCaderno(id){
+  cadernoActual = id;
+  const d = await (await api("/cadernos")).json();
+  const c = d.cadernos.find(x=>x.id_caderno===id);
+  $("cab-caderno").innerHTML = `
+    <div class="barra" style="margin:0">
+      <div><h2 style="margin:0">${escapar(c.titulo_invencao)}</h2>
+        <div style="font-size:.82rem;color:var(--cinza);margin-top:4px">
+          ${escapar(c.codigo_ltdp)} · ${escapar(c.investigador_principal)} · ${escapar(c.area_tecnologica)} ·
+          Início ${escapar(c.data_inicio)} ${c.codigo_patente_previsto? "· Patente prevista "+escapar(c.codigo_patente_previsto):""}
+        </div></div>
+      <div>${barraTRL(c.status_trl)} <span class="etq ${c.estado.toLowerCase()}" style="margin-left:8px">${c.estado}</span></div>
+    </div>`;
+  mostrar("caderno"); carregarEntradas();
+}
+async function carregarEntradas(){
+  const lst = await (await api(`/cadernos/${cadernoActual}/entradas`)).json();
+  if(!lst.length){
+    $("lista-entradas").innerHTML = '<div class="cartao">Sem entradas ainda. Registe o primeiro dia de progresso — o Hub sela cada registo com SHA-256.</div>';
+    return;
+  }
+  $("lista-entradas").innerHTML = lst.map((e,i)=>`
+    <div class="entrada">
+      <div class="meta">
+        <span><b>Registo ${i+1}</b> · ${escapar(e.data_registo)} · origem ${e.origem_registo==="EXCEL_SYNC"?"planilha Excel":"web"}</span>
+        <button class="suave pequeno" onclick='verificar(${JSON.stringify(e.id_entrada)}, this)'>Verificar integridade</button>
+      </div>
+      <h4>Metodologia</h4><p>${escapar(e.metodologia)}</p>
+      <h4>Resultados brutos</h4><p>${escapar(e.resultados_brutos)}</p>
+      ${e.link_repositorio_codigo? `<h4>Repositório</h4><a class="lnk" href="${escapar(e.link_repositorio_codigo)}" target="_blank" rel="noopener">${escapar(e.link_repositorio_codigo)}</a>`:""}
+      <div class="selo mono" data-selo><b>Selo de integridade — SHA-256</b>${e.hash_seguranca}
+        ${e.hash_anterior? `<br><b style="margin-top:6px">Encadeado ao registo anterior</b>${e.hash_anterior}`:""}
+      </div>
+      <div style="font-size:.72rem;color:var(--cinza);margin-top:6px">
+        Assinatura do investigador: <span class="mono">${e.assinatura_digital_investigador.slice(0,24)}…</span>
+        ${e.assinatura_testemunha? ' · Testemunha: <span class="mono">'+e.assinatura_testemunha.slice(0,24)+'…</span>':' · Sem testemunha'}
+      </div>
+    </div>`).join("");
+}
+function abrirModalEntrada(){ aviso("e-erro",""); dlgEntrada.showModal(); }
+async function criarEntrada(ev){
+  ev.preventDefault(); aviso("e-erro","");
+  try{
+    await api(`/cadernos/${cadernoActual}/entradas`,{method:"POST",body:JSON.stringify({
+      metodologia:$("e-met").value, resultados_brutos:$("e-res").value,
+      link_repositorio_codigo:$("e-link").value||null,
+      assinatura_testemunha_email:$("e-test").value||null })});
+    dlgEntrada.close();
+    $("e-met").value=$("e-res").value=$("e-link").value=$("e-test").value="";
+    carregarEntradas();
+  }catch(e){ aviso("e-erro", e.message); }
+}
+async function verificar(id, btn){
+  const selo = btn.closest(".entrada").querySelector("[data-selo]");
+  try{
+    const d = await (await api(`/entradas/${id}/verificar`)).json();
+    const ok = d.integridade === "ÍNTEGRA";
+    selo.classList.toggle("ok", ok); selo.classList.toggle("quebra", !ok);
+    btn.textContent = ok ? "✓ Íntegra" : "⚠ Quebra de integridade";
+  }catch(e){ btn.textContent = "Erro: "+e.message; }
+}
+
+/* ------------------------- Diretor -------------------------------- */
+async function exportarExcel(){
+  try{
+    const r = await api("/cadernos/export/excel");
+    const blob = await r.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (r.headers.get("Content-Disposition")||"").match(/filename="(.+)"/)?.[1] || "LTDP_Hub_Export.xlsx";
+    a.click(); URL.revokeObjectURL(a.href);
+  }catch(e){ alert(e.message); }
+}
+async function criarUtilizador(ev){
+  ev.preventDefault(); aviso("u-erro","");
+  try{
+    await api("/auth/utilizadores",{method:"POST",body:JSON.stringify({
+      nome_completo:$("u-nome").value, email:$("u-email").value,
+      senha:$("u-senha").value, perfil:$("u-perfil").value })});
+    aviso("u-erro", "Utilizador criado com sucesso.", true);
+    $("u-nome").value=$("u-email").value=$("u-senha").value="";
+  }catch(e){ aviso("u-erro", e.message); }
+}
+
+/* ------------------------- Arranque ------------------------------- */
+if (token) iniciar(); else mostrar("login");
+</script>
+</body>
+</html>

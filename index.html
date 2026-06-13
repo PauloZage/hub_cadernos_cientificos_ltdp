@@ -134,9 +134,31 @@
 <section id="vista-caderno" class="escondido">
   <div class="barra">
     <button class="suave" onclick="mostrar('painel');carregarCadernos()">← Voltar ao painel</button>
-    <button onclick="abrirModalEntrada()">+ Registar progresso de hoje</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <label class="suave pequeno" style="display:inline-flex;align-items:center;cursor:pointer;border:1px solid var(--azul);color:var(--azul);background:#fff;border-radius:6px;padding:9px 16px;text-transform:none;letter-spacing:0;font-size:.86rem;margin:0">
+        Importar entradas (Excel)
+        <input type="file" accept=".xlsx,.xlsm" style="display:none" onchange="importarExcel(this)">
+      </label>
+      <button onclick="abrirModalEntrada()">+ Registar progresso de hoje</button>
+    </div>
   </div>
   <div class="cartao" id="cab-caderno"></div>
+
+  <div class="barra" style="margin-top:22px;margin-bottom:8px">
+    <h2 style="margin:0">Imagens do invento</h2>
+    <label class="suave pequeno" style="display:inline-block;cursor:pointer;border:1px solid var(--azul);color:var(--azul);background:#fff;border-radius:6px;padding:5px 10px;text-transform:none;letter-spacing:0;margin:0">
+      + Carregar imagem do PC
+      <input type="file" accept="image/*" style="display:none" onchange="carregarImagem(this)">
+    </label>
+  </div>
+  <div id="lista-imagens"></div>
+
+  <div class="barra" style="margin-top:22px;margin-bottom:8px">
+    <h2 style="margin:0">Custos da invenção</h2>
+    <button class="pequeno" onclick="aviso('k-erro','');$('k-data').value=new Date().toISOString().slice(0,10);dlgCusto.showModal()">+ Registar custo</button>
+  </div>
+  <div id="painel-custos"></div>
+
   <h2 style="margin-top:22px">Entradas científicas (cadeia de auditoria)</h2>
   <div id="lista-entradas"></div>
 </section>
@@ -155,6 +177,10 @@
       <div><label>Data de início</label><input id="c-data" type="date" required></div>
       <div><label>Status TRL (1–9)</label><input id="c-trl" type="number" min="1" max="9" value="1" required></div>
     </div>
+    <label>Outros participantes na invenção</label>
+    <textarea id="c-participantes" rows="2" placeholder="Nomes separados por vírgula ou por linha"></textarea>
+    <label>Número telefónico de contacto</label>
+    <input id="c-telefone" placeholder="+244 9__ ___ ___">
     <label>Código de patente previsto (opcional)</label><input id="c-pat" placeholder="IAPI-AO/2026/____">
     <div id="c-erro"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
@@ -195,6 +221,46 @@
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
       <button type="button" class="suave" onclick="dlgUtil.close()">Fechar</button>
       <button type="submit">Criar utilizador</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgEditar">
+  <h2>Corrigir entrada (Diretor)</h2>
+  <p style="font-size:.8rem;color:var(--cinza);margin-top:4px">A correcção é auditada e o selo SHA-256 é recalculado.</p>
+  <form onsubmit="guardarEdicao(event)">
+    <label>Data de registo</label><input id="ed-data" placeholder="ISO 8601 ou YYYY-MM-DD">
+    <label>Metodologia</label><textarea id="ed-met" rows="3"></textarea>
+    <label>Resultados brutos</label><textarea id="ed-res" rows="4"></textarea>
+    <label>Link do repositório</label><input id="ed-link" type="url">
+    <label>Motivo da alteração (obrigatório)</label><input id="ed-motivo" required minlength="3" placeholder="ex.: erro de transcrição">
+    <div id="ed-erro"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+      <button type="button" class="suave" onclick="dlgEditar.close()">Cancelar</button>
+      <button type="submit">Guardar correcção</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgCusto">
+  <h2>Registar custo da invenção</h2>
+  <form onsubmit="criarCusto(event)">
+    <label>Descrição</label><input id="k-desc" required>
+    <div class="grelha2">
+      <div><label>Categoria</label>
+        <select id="k-cat"><option value="MATERIAL">Material</option><option value="EQUIPAMENTO">Equipamento</option><option value="MAO_OBRA">Mão de obra</option><option value="SERVICOS">Serviços</option><option value="OUTROS">Outros</option></select>
+      </div>
+      <div><label>Fase</label>
+        <select id="k-fase"><option value="CONCEPCAO">Concepção</option><option value="DESENVOLVIMENTO" selected>Desenvolvimento</option><option value="PROTOTIPO">Protótipo</option><option value="TESTES">Testes</option><option value="FINALIZACAO">Finalização</option></select>
+      </div>
+      <div><label>Valor</label><input id="k-valor" type="number" min="0" step="0.01" required></div>
+      <div><label>Moeda</label><input id="k-moeda" value="AOA"></div>
+      <div><label>Data da despesa</label><input id="k-data" type="date" required></div>
+    </div>
+    <div id="k-erro"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">
+      <button type="button" class="suave" onclick="dlgCusto.close()">Cancelar</button>
+      <button type="submit">Registar custo</button>
     </div>
   </form>
 </dialog>
@@ -289,6 +355,8 @@ async function criarCaderno(ev){
   try{
     await api("/cadernos",{method:"POST",body:JSON.stringify({
       titulo_invencao:$("c-titulo").value, investigador_principal:$("c-inv").value,
+      participantes_adicionais:$("c-participantes").value||null,
+      telefone_contacto:$("c-telefone").value||null,
       area_tecnologica:$("c-area").value, data_inicio:$("c-data").value,
       status_trl:+$("c-trl").value, codigo_patente_previsto:$("c-pat").value||null })});
     dlgCaderno.close(); carregarCadernos();
@@ -306,10 +374,79 @@ async function abrirCaderno(id){
         <div style="font-size:.82rem;color:var(--cinza);margin-top:4px">
           ${escapar(c.codigo_ltdp)} · ${escapar(c.investigador_principal)} · ${escapar(c.area_tecnologica)} ·
           Início ${escapar(c.data_inicio)} ${c.codigo_patente_previsto? "· Patente prevista "+escapar(c.codigo_patente_previsto):""}
-        </div></div>
+        </div>
+        ${c.participantes_adicionais? `<div style="font-size:.82rem;color:var(--cinza);margin-top:3px">Participantes: ${escapar(c.participantes_adicionais)}</div>`:""}
+        ${c.telefone_contacto? `<div style="font-size:.82rem;color:var(--cinza);margin-top:3px">Contacto: ${escapar(c.telefone_contacto)}</div>`:""}
+        </div>
       <div>${barraTRL(c.status_trl)} <span class="etq ${c.estado.toLowerCase()}" style="margin-left:8px">${c.estado}</span></div>
     </div>`;
-  mostrar("caderno"); carregarEntradas();
+  mostrar("caderno"); carregarEntradas(); carregarImagens(); carregarCustos();
+}
+
+/* --------------------------- Imagens ------------------------------ */
+async function carregarImagens(){
+  try{
+    const imgs = await (await api(`/cadernos/${cadernoActual}/imagens`)).json();
+    if(!imgs.length){ $("lista-imagens").innerHTML = '<div class="cartao" style="color:var(--cinza);font-size:.85rem">Sem imagens. Carregue fotografias ou esquemas do invento a partir do PC.</div>'; return; }
+    $("lista-imagens").innerHTML = '<div style="display:flex;gap:12px;flex-wrap:wrap">' + imgs.map(i=>`
+      <div class="cartao" style="width:180px;padding:10px">
+        <img src="${i.data_uri}" alt="${escapar(i.legenda||i.nome_ficheiro)}" style="width:100%;height:120px;object-fit:cover;border-radius:6px">
+        <div style="font-size:.74rem;color:var(--cinza);margin-top:6px;word-break:break-all">${escapar(i.legenda||i.nome_ficheiro)}</div>
+        <button class="suave pequeno" style="margin-top:6px;color:var(--vermelho);border-color:var(--vermelho)" onclick='apagarImagem(${JSON.stringify(i.id_imagem)})'>Apagar</button>
+      </div>`).join("") + '</div>';
+  }catch(e){ $("lista-imagens").innerHTML = `<div class="aviso erro">${e.message}</div>`; }
+}
+async function carregarImagem(input){
+  const f = input.files[0]; if(!f) return;
+  const fd = new FormData(); fd.append("ficheiro", f);
+  try{
+    const r = await fetch(API+`/cadernos/${cadernoActual}/imagens`,{method:"POST",
+      headers: token?{"Authorization":"Bearer "+token}:{}, body:fd});
+    if(!r.ok){ let d="Erro "+r.status; try{d=(await r.json()).detail||d}catch(_){}; throw new Error(d); }
+    input.value=""; carregarImagens();
+  }catch(e){ alert("Erro ao carregar imagem: "+e.message); }
+}
+async function apagarImagem(id){
+  if(!confirm("Apagar esta imagem?")) return;
+  try{ await api(`/imagens/${id}`,{method:"DELETE"}); carregarImagens(); }
+  catch(e){ alert(e.message); }
+}
+
+/* --------------------------- Custos ------------------------------- */
+const ETIQ_CAT = {MATERIAL:"Material",EQUIPAMENTO:"Equipamento",MAO_OBRA:"Mão de obra",SERVICOS:"Serviços",OUTROS:"Outros"};
+const ETIQ_FASE = {CONCEPCAO:"Concepção",DESENVOLVIMENTO:"Desenvolvimento",PROTOTIPO:"Protótipo",TESTES:"Testes",FINALIZACAO:"Finalização"};
+function fmtValor(v,m){ return new Intl.NumberFormat("pt-PT",{minimumFractionDigits:2,maximumFractionDigits:2}).format(v)+" "+m; }
+async function carregarCustos(){
+  try{
+    const d = await (await api(`/cadernos/${cadernoActual}/custos`)).json();
+    if(!d.custos.length){ $("painel-custos").innerHTML = '<div class="cartao" style="color:var(--cinza);font-size:.85rem">Sem custos registados. Registe as despesas desde o início até à finalização do invento.</div>'; return; }
+    let html = `<div class="cartao" style="padding:14px 18px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <div><span style="font-size:.78rem;color:var(--cinza);text-transform:uppercase;letter-spacing:.4px">Custo total da invenção</span>
+      <div style="font-size:1.4rem;font-weight:700;color:var(--azul)">${fmtValor(d.total,d.moeda)}</div></div>
+      <div style="font-size:.78rem;color:var(--cinza)">${Object.entries(d.total_por_fase).map(([k,v])=>`${ETIQ_FASE[k]||k}: <b>${fmtValor(v,d.moeda)}</b>`).join(" · ")}</div></div>`;
+    html += '<table><thead><tr><th>Descrição</th><th>Categoria</th><th>Fase</th><th>Data</th><th>Valor</th><th></th></tr></thead><tbody>';
+    for(const k of d.custos){
+      html += `<tr><td><b>${escapar(k.descricao)}</b></td><td>${ETIQ_CAT[k.categoria]||k.categoria}</td>
+        <td>${ETIQ_FASE[k.fase]||k.fase}</td><td>${escapar(k.data_despesa)}</td>
+        <td class="mono">${fmtValor(k.valor,k.moeda)}</td>
+        <td><button class="suave pequeno" style="color:var(--vermelho);border-color:var(--vermelho)" onclick='apagarCusto(${JSON.stringify(k.id_custo)})'>×</button></td></tr>`;
+    }
+    $("painel-custos").innerHTML = html + "</tbody></table>";
+  }catch(e){ $("painel-custos").innerHTML = `<div class="aviso erro">${e.message}</div>`; }
+}
+async function criarCusto(ev){
+  ev.preventDefault(); aviso("k-erro","");
+  try{
+    await api(`/cadernos/${cadernoActual}/custos`,{method:"POST",body:JSON.stringify({
+      descricao:$("k-desc").value, categoria:$("k-cat").value, fase:$("k-fase").value,
+      valor:+$("k-valor").value, moeda:$("k-moeda").value||"AOA", data_despesa:$("k-data").value })});
+    dlgCusto.close(); $("k-desc").value=$("k-valor").value=""; carregarCustos();
+  }catch(e){ aviso("k-erro", e.message); }
+}
+async function apagarCusto(id){
+  if(!confirm("Apagar este custo?")) return;
+  try{ await api(`/custos/${id}`,{method:"DELETE"}); carregarCustos(); }
+  catch(e){ alert(e.message); }
 }
 async function carregarEntradas(){
   const lst = await (await api(`/cadernos/${cadernoActual}/entradas`)).json();
@@ -318,10 +455,14 @@ async function carregarEntradas(){
     return;
   }
   $("lista-entradas").innerHTML = lst.map((e,i)=>`
-    <div class="entrada">
+    <div class="entrada" ${e.anulada?'style="opacity:.55;border-style:dashed"':''}>
       <div class="meta">
-        <span><b>Registo ${i+1}</b> · ${escapar(e.data_registo)} · origem ${e.origem_registo==="EXCEL_SYNC"?"planilha Excel":"web"}</span>
-        <button class="suave pequeno" onclick='verificar(${JSON.stringify(e.id_entrada)}, this)'>Verificar integridade</button>
+        <span><b>Registo ${i+1}</b> · ${escapar(e.data_registo)} · origem ${e.origem_registo==="EXCEL_SYNC"?"planilha Excel":"web"}${e.anulada?' · <b style="color:var(--vermelho)">ANULADA</b>':''}</span>
+        <span style="display:flex;gap:6px">
+          <button class="suave pequeno" onclick='verificar(${JSON.stringify(e.id_entrada)}, this)'>Verificar integridade</button>
+          ${perfil==="DIRETOR"?`<button class="suave pequeno" onclick='abrirEdicao(${JSON.stringify(e)})'>Editar</button>
+          <button class="suave pequeno" style="color:var(--vermelho);border-color:var(--vermelho)" onclick='anularEntrada(${JSON.stringify(e.id_entrada)})'>Anular</button>`:''}
+        </span>
       </div>
       <h4>Metodologia</h4><p>${escapar(e.metodologia)}</p>
       <h4>Resultados brutos</h4><p>${escapar(e.resultados_brutos)}</p>
@@ -332,6 +473,7 @@ async function carregarEntradas(){
       <div style="font-size:.72rem;color:var(--cinza);margin-top:6px">
         Assinatura do investigador: <span class="mono">${e.assinatura_digital_investigador.slice(0,24)}…</span>
         ${e.assinatura_testemunha? ' · Testemunha: <span class="mono">'+e.assinatura_testemunha.slice(0,24)+'…</span>':' · Sem testemunha'}
+        ${e.editada_por? `<br>✎ Corrigida por ${escapar(e.editada_por)} em ${escapar(e.editada_em||"")} — motivo: ${escapar(e.motivo_alteracao||"")}`:''}
       </div>
     </div>`).join("");
 }
@@ -356,6 +498,48 @@ async function verificar(id, btn){
     selo.classList.toggle("ok", ok); selo.classList.toggle("quebra", !ok);
     btn.textContent = ok ? "✓ Íntegra" : "⚠ Quebra de integridade";
   }catch(e){ btn.textContent = "Erro: "+e.message; }
+}
+
+/* ----------------- Edição/Anulação (Diretor) ---------------------- */
+let entradaEditarId = null;
+function abrirEdicao(e){
+  entradaEditarId = e.id_entrada;
+  $("ed-data").value = e.data_registo||"";
+  $("ed-met").value = e.metodologia||"";
+  $("ed-res").value = e.resultados_brutos||"";
+  $("ed-link").value = e.link_repositorio_codigo||"";
+  $("ed-motivo").value = "";
+  aviso("ed-erro",""); dlgEditar.showModal();
+}
+async function guardarEdicao(ev){
+  ev.preventDefault(); aviso("ed-erro","");
+  try{
+    await api(`/entradas/${entradaEditarId}`,{method:"PUT",body:JSON.stringify({
+      data_registo:$("ed-data").value||null, metodologia:$("ed-met").value||null,
+      resultados_brutos:$("ed-res").value||null, link_repositorio_codigo:$("ed-link").value||null,
+      motivo_alteracao:$("ed-motivo").value })});
+    dlgEditar.close(); carregarEntradas();
+  }catch(e){ aviso("ed-erro", e.message); }
+}
+async function anularEntrada(id){
+  const motivo = prompt("Motivo da anulação (fica registado na auditoria):");
+  if(!motivo || motivo.trim().length<3){ if(motivo!==null) alert("Indique um motivo com pelo menos 3 caracteres."); return; }
+  try{
+    await api(`/entradas/${id}?motivo=${encodeURIComponent(motivo)}`,{method:"DELETE"});
+    carregarEntradas();
+  }catch(e){ alert(e.message); }
+}
+async function importarExcel(input){
+  const f = input.files[0]; if(!f) return;
+  const fd = new FormData(); fd.append("ficheiro", f);
+  try{
+    const r = await fetch(API+`/cadernos/${cadernoActual}/importar/excel`,{method:"POST",
+      headers: token?{"Authorization":"Bearer "+token}:{}, body:fd});
+    if(!r.ok){ let d="Erro "+r.status; try{d=(await r.json()).detail||d}catch(_){}; throw new Error(d); }
+    const res = await r.json();
+    alert(`Importação concluída.\nNovas entradas: ${res.entradas_novas}\nIgnoradas (duplicadas): ${res.ignoradas_duplicadas}` + (res.erros.length?`\nAvisos:\n- ${res.erros.join("\n- ")}`:""));
+    input.value=""; carregarEntradas();
+  }catch(e){ alert("Erro na importação: "+e.message); }
 }
 
 /* ------------------------- Diretor -------------------------------- */

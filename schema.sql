@@ -28,6 +28,8 @@ CREATE TABLE cadernos (
     codigo_ltdp             TEXT NOT NULL UNIQUE,       -- ex.: LTDP/CAD/2026/0001
     titulo_invencao         TEXT NOT NULL,
     investigador_principal  TEXT NOT NULL,
+    participantes_adicionais TEXT,                      -- NOVO: outros nomes participantes na invenção
+    telefone_contacto       TEXT,                       -- NOVO: número telefónico de contacto
     area_tecnologica        TEXT NOT NULL,              -- ex.: Energias Renováveis, AgroTech
     data_inicio             TEXT NOT NULL,              -- YYYY-MM-DD
     status_trl              INTEGER NOT NULL DEFAULT 1
@@ -68,11 +70,49 @@ CREATE TABLE entradas_cientificas (
     localizacao                      TEXT NOT NULL DEFAULT 'LTDP - Lubango, Huíla, Angola',
     fuso_horario                     TEXT NOT NULL DEFAULT 'WAT (UTC+1)',
     entrada_corrigida                TEXT REFERENCES entradas_cientificas (id_entrada),
+    anulada                          INTEGER NOT NULL DEFAULT 0,   -- NOVO: soft-delete (1 = anulada)
+    editada_em                       TEXT,                          -- NOVO: auditoria de edição
+    editada_por                      TEXT,                          -- NOVO: email do Diretor que editou
+    motivo_alteracao                 TEXT,                          -- NOVO: justificação da correcção
     criado_em                        TEXT NOT NULL
 );
 
 CREATE INDEX idx_entradas_caderno ON entradas_cientificas (id_caderno, data_registo);
 CREATE UNIQUE INDEX idx_entradas_hash ON entradas_cientificas (hash_seguranca);
+
+-- ----------------------------------------------------------------------------
+-- NOVO: Imagens dos inventos (carregadas a partir do PC, embebidas em base64)
+-- ----------------------------------------------------------------------------
+CREATE TABLE imagens_invento (
+    id_imagem      TEXT PRIMARY KEY,
+    id_caderno     TEXT NOT NULL REFERENCES cadernos (id_caderno),
+    nome_ficheiro  TEXT NOT NULL,
+    tipo_mime      TEXT NOT NULL,
+    legenda        TEXT,
+    dados_base64   TEXT NOT NULL,
+    carregado_por  TEXT NOT NULL,
+    criado_em      TEXT NOT NULL
+);
+CREATE INDEX idx_imagens_caderno ON imagens_invento (id_caderno);
+
+-- ----------------------------------------------------------------------------
+-- NOVO: Custos da invenção (do início à finalização)
+-- ----------------------------------------------------------------------------
+CREATE TABLE custos_invento (
+    id_custo       TEXT PRIMARY KEY,
+    id_caderno     TEXT NOT NULL REFERENCES cadernos (id_caderno),
+    descricao      TEXT NOT NULL,
+    categoria      TEXT NOT NULL DEFAULT 'MATERIAL'
+                   CHECK (categoria IN ('MATERIAL','EQUIPAMENTO','MAO_OBRA','SERVICOS','OUTROS')),
+    valor          TEXT NOT NULL,                        -- texto para preservar precisão (Kwanza)
+    moeda          TEXT NOT NULL DEFAULT 'AOA',
+    data_despesa   TEXT NOT NULL,
+    fase           TEXT NOT NULL DEFAULT 'DESENVOLVIMENTO'
+                   CHECK (fase IN ('CONCEPCAO','DESENVOLVIMENTO','PROTOTIPO','TESTES','FINALIZACAO')),
+    registado_por  TEXT NOT NULL,
+    criado_em      TEXT NOT NULL
+);
+CREATE INDEX idx_custos_caderno ON custos_invento (id_caderno);
 
 -- ----------------------------------------------------------------------------
 -- Registo de sincronizações (auditoria do motor Excel <-> API)

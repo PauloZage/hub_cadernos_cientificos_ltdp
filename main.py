@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import jwt
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
@@ -74,6 +74,10 @@ class Caderno(Base):
     codigo_ltdp = Column(String, unique=True, nullable=False)
     titulo_invencao = Column(String, nullable=False)
     investigador_principal = Column(String, nullable=False)
+    # NOVO: outros participantes na invenção (texto livre: nomes separados por vírgula ou linha)
+    participantes_adicionais = Column(Text, nullable=True)
+    # NOVO: número telefónico de contacto do caderno/invenção
+    telefone_contacto = Column(String, nullable=True)
     area_tecnologica = Column(String, nullable=False)
     data_inicio = Column(String, nullable=False)
     status_trl = Column(Integer, nullable=False, default=1)
@@ -83,6 +87,46 @@ class Caderno(Base):
     fuso_horario = Column(String, nullable=False, default=FUSO_LABEL)
     criado_em = Column(String, nullable=False)
     actualizado_em = Column(String, nullable=False)
+
+
+class ImagemInvento(Base):
+    """NOVO: imagens dos inventos, carregadas a partir do PC do utilizador."""
+    __tablename__ = "imagens_invento"
+    id_imagem = Column(String, primary_key=True)
+    id_caderno = Column(String, ForeignKey("cadernos.id_caderno"), nullable=False)
+    nome_ficheiro = Column(String, nullable=False)
+    tipo_mime = Column(String, nullable=False)
+    legenda = Column(String, nullable=True)
+    dados_base64 = Column(Text, nullable=False)   # imagem embebida (base64) — sem dependência de storage externo
+    carregado_por = Column(String, nullable=False)
+    criado_em = Column(String, nullable=False)
+
+
+class CustoInvento(Base):
+    """NOVO: custos da invenção, do início à finalização (rastreio financeiro)."""
+    __tablename__ = "custos_invento"
+    id_custo = Column(String, primary_key=True)
+    id_caderno = Column(String, ForeignKey("cadernos.id_caderno"), nullable=False)
+    descricao = Column(String, nullable=False)
+    categoria = Column(String, nullable=False, default="MATERIAL")  # MATERIAL, EQUIPAMENTO, MAO_OBRA, SERVICOS, OUTROS
+    valor = Column(String, nullable=False)        # guardado como texto para preservar precisão (Kwanza)
+    moeda = Column(String, nullable=False, default="AOA")
+    data_despesa = Column(String, nullable=False)  # YYYY-MM-DD
+    fase = Column(String, nullable=False, default="DESENVOLVIMENTO")  # CONCEPCAO, DESENVOLVIMENTO, PROTOTIPO, TESTES, FINALIZACAO
+    registado_por = Column(String, nullable=False)
+    criado_em = Column(String, nullable=False)
+
+
+class LogSincronizacao(Base):
+    __tablename__ = "log_sincronizacao"
+    id_sync = Column(String, primary_key=True)
+    id_utilizador = Column(String, ForeignKey("utilizadores.id_utilizador"), nullable=True)
+    data_sync = Column(String, nullable=False)
+    entradas_novas = Column(Integer, nullable=False, default=0)
+    duplicados = Column(Integer, nullable=False, default=0)
+    alertas_hash = Column(Integer, nullable=False, default=0)
+    ficheiro_origem = Column(String, nullable=True)
+    detalhes = Column(Text, nullable=True)
 
 
 class EntradaCientifica(Base):
@@ -102,9 +146,49 @@ class EntradaCientifica(Base):
     fuso_horario = Column(String, nullable=False, default=FUSO_LABEL)
     entrada_corrigida = Column(String, nullable=True)
     criado_em = Column(String, nullable=False)
+    # NOVO: campos de auditoria para edição/anulação pelo Diretor (administrador)
+    anulada = Column(Integer, nullable=False, default=0)        # soft-delete: 1 = anulada
+    editada_em = Column(String, nullable=True)
+    editada_por = Column(String, nullable=True)
+    motivo_alteracao = Column(Text, nullable=True)
 
 
 Base.metadata.create_all(engine)
+
+
+# ----------------------------------------------------------------------------
+# Migração leve: adiciona colunas novas a bases de dados já existentes.
+# (create_all cria tabelas em falta mas NÃO altera tabelas já criadas.)
+# ----------------------------------------------------------------------------
+def _migrar_colunas():
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "sqlite" in DATABASE_URL:
+        tipo = "TEXT"
+    else:
+        tipo = "TEXT"
+    novas = {
+        "cadernos": [("participantes_adicionais", tipo), ("telefone_contacto", tipo)],
+        "entradas_cientificas": [
+            ("anulada", "INTEGER DEFAULT 0"), ("editada_em", tipo),
+            ("editada_por", tipo), ("motivo_alteracao", tipo),
+        ],
+    }
+    with engine.begin() as conn:
+        for tabela, colunas in novas.items():
+            try:
+                existentes = {c["name"] for c in insp.get_columns(tabela)}
+            except Exception:
+                continue
+            for nome_col, tipo_col in colunas:
+                if nome_col not in existentes:
+                    try:
+                        conn.execute(text(f'ALTER TABLE {tabela} ADD COLUMN {nome_col} {tipo_col}'))
+                    except Exception:
+                        pass
+
+
+_migrar_colunas()
 
 # ----------------------------------------------------------------------------
 # Integridade intelectual: SHA-256 canónico e assinaturas
@@ -184,11 +268,32 @@ def exigir_diretor(u: Utilizador = Depends(utilizador_actual)) -> Utilizador:
 class CadernoIn(BaseModel):
     titulo_invencao: str
     investigador_principal: str
+    participantes_adicionais: Optional[str] = Field(None, description="Outros nomes participantes na invenção.")
+    telefone_contacto: Optional[str] = Field(None, description="Número telefónico de contacto.")
     area_tecnologica: str
     data_inicio: str = Field(..., description="YYYY-MM-DD")
     status_trl: int = Field(1, ge=1, le=9)
     codigo_patente_previsto: Optional[str] = None
     id_caderno: Optional[str] = Field(None, description="UUID gerado offline (sync Excel). Se omitido, o Hub gera.")
+
+
+class EntradaEditar(BaseModel):
+    """NOVO: edição de entrada já gravada (reservado ao Diretor)."""
+    metodologia: Optional[str] = None
+    resultados_brutos: Optional[str] = None
+    link_repositorio_codigo: Optional[str] = None
+    data_registo: Optional[str] = None
+    motivo_alteracao: str = Field(..., min_length=3, description="Justificação obrigatória da correcção (auditoria).")
+
+
+class CustoIn(BaseModel):
+    """NOVO: registo de um custo da invenção."""
+    descricao: str
+    categoria: str = Field("MATERIAL", pattern="^(MATERIAL|EQUIPAMENTO|MAO_OBRA|SERVICOS|OUTROS)$")
+    valor: float = Field(..., ge=0)
+    moeda: str = Field("AOA")
+    data_despesa: str = Field(..., description="YYYY-MM-DD")
+    fase: str = Field("DESENVOLVIMENTO", pattern="^(CONCEPCAO|DESENVOLVIMENTO|PROTOTIPO|TESTES|FINALIZACAO)$")
 
 
 class EntradaIn(BaseModel):
@@ -303,6 +408,8 @@ def abrir_caderno(dados: CadernoIn, db: Session = Depends(get_db),
         id_caderno=cid, codigo_ltdp=f"LTDP/CAD/{ano}/{seq:04d}",
         titulo_invencao=dados.titulo_invencao,
         investigador_principal=dados.investigador_principal,
+        participantes_adicionais=dados.participantes_adicionais,
+        telefone_contacto=dados.telefone_contacto,
         area_tecnologica=dados.area_tecnologica, data_inicio=dados.data_inicio,
         status_trl=dados.status_trl, codigo_patente_previsto=dados.codigo_patente_previsto,
         criado_em=agora, actualizado_em=agora,
@@ -335,6 +442,8 @@ def listar_cadernos(area: Optional[str] = Query(None), trl_min: Optional[int] = 
             "id_caderno": c.id_caderno, "codigo_ltdp": c.codigo_ltdp,
             "titulo_invencao": c.titulo_invencao,
             "investigador_principal": c.investigador_principal,
+            "participantes_adicionais": c.participantes_adicionais,
+            "telefone_contacto": c.telefone_contacto,
             "area_tecnologica": c.area_tecnologica, "data_inicio": c.data_inicio,
             "status_trl": c.status_trl, "trl_descricao": f"TRL {c.status_trl}/9",
             "codigo_patente_previsto": c.codigo_patente_previsto, "estado": c.estado,
@@ -359,6 +468,9 @@ def listar_entradas(id_caderno: str, db: Session = Depends(get_db),
         "assinatura_digital_investigador": e.assinatura_digital_investigador,
         "assinatura_testemunha": e.assinatura_testemunha,
         "origem_registo": e.origem_registo,
+        "anulada": bool(e.anulada or 0),
+        "editada_em": e.editada_em, "editada_por": e.editada_por,
+        "motivo_alteracao": e.motivo_alteracao,
     } for e in entradas]
 
 
@@ -422,6 +534,252 @@ def verificar_integridade(id_entrada: str, db: Session = Depends(get_db),
             "verificado_em": agora_wat().isoformat()}
 
 
+# --------------------- Edição/Anulação de Entradas --------------------------
+# Reservado ao DIRETOR (administrador). Mantém valor probatório: a edição é
+# auditada (quem/quando/porquê) e a eliminação é LÓGICA (soft-delete), de modo
+# a preservar a cadeia de anterioridade para efeitos de patente (IAPI).
+# ----------------------------------------------------------------------------
+@app.put("/entradas/{id_entrada}", tags=["Entradas Científicas"])
+def editar_entrada(id_entrada: str, dados: EntradaEditar, db: Session = Depends(get_db),
+                   admin: Utilizador = Depends(exigir_diretor)):
+    """Corrige uma entrada já gravada. Recalcula o selo SHA-256 e regista a auditoria."""
+    e = db.get(EntradaCientifica, id_entrada)
+    if not e:
+        raise HTTPException(404, "Entrada não encontrada.")
+    if dados.metodologia is not None:
+        e.metodologia = dados.metodologia
+    if dados.resultados_brutos is not None:
+        e.resultados_brutos = dados.resultados_brutos
+    if dados.link_repositorio_codigo is not None:
+        e.link_repositorio_codigo = dados.link_repositorio_codigo
+    if dados.data_registo is not None:
+        e.data_registo = dados.data_registo
+
+    novo_hash = calcular_hash_entrada(e.id_caderno, e.data_registo, e.metodologia,
+                                      e.resultados_brutos, e.link_repositorio_codigo)
+    conflito = (db.query(EntradaCientifica)
+                .filter(EntradaCientifica.hash_seguranca == novo_hash,
+                        EntradaCientifica.id_entrada != e.id_entrada).first())
+    if conflito:
+        raise HTTPException(409, "Já existe outra entrada com conteúdo idêntico (hash duplicado).")
+
+    e.hash_seguranca = novo_hash
+    e.assinatura_digital_investigador = assinar(admin.email, novo_hash)
+    e.editada_em = agora_wat().isoformat()
+    e.editada_por = admin.email
+    e.motivo_alteracao = dados.motivo_alteracao
+    db.commit()
+    return {"id_entrada": e.id_entrada, "novo_hash": e.hash_seguranca,
+            "editada_por": e.editada_por, "editada_em": e.editada_em,
+            "aviso": "Selo SHA-256 recalculado. A correcção fica auditada."}
+
+
+@app.delete("/entradas/{id_entrada}", tags=["Entradas Científicas"])
+def anular_entrada(id_entrada: str, motivo: str = Query(..., min_length=3),
+                   fisico: bool = Query(False, description="True = eliminação física definitiva (irreversível)."),
+                   db: Session = Depends(get_db), admin: Utilizador = Depends(exigir_diretor)):
+    """
+    Anula (soft-delete) uma entrada gravada por erro. Por omissão a entrada é
+    apenas MARCADA como anulada (preserva a cadeia de auditoria). Use fisico=true
+    apenas se quiser eliminar definitivamente o registo da base de dados.
+    """
+    e = db.get(EntradaCientifica, id_entrada)
+    if not e:
+        raise HTTPException(404, "Entrada não encontrada.")
+    if fisico:
+        db.delete(e); db.commit()
+        return {"id_entrada": id_entrada, "eliminada": "DEFINITIVA",
+                "por": admin.email, "motivo": motivo}
+    e.anulada = 1
+    e.editada_em = agora_wat().isoformat()
+    e.editada_por = admin.email
+    e.motivo_alteracao = f"[ANULADA] {motivo}"
+    db.commit()
+    return {"id_entrada": id_entrada, "estado": "ANULADA (soft-delete)",
+            "por": admin.email, "motivo": motivo}
+
+
+# --------------------------- Imagens dos inventos ---------------------------
+@app.post("/cadernos/{id_caderno}/imagens", tags=["Imagens"], status_code=201)
+async def carregar_imagem(id_caderno: str, ficheiro: UploadFile = File(...),
+                          legenda: Optional[str] = Form(None),
+                          db: Session = Depends(get_db),
+                          u: Utilizador = Depends(utilizador_actual)):
+    """Carrega uma imagem do invento a partir do PC (ficheiro). Guardada embebida (base64)."""
+    if not db.get(Caderno, id_caderno):
+        raise HTTPException(404, "Caderno não encontrado.")
+    if not (ficheiro.content_type or "").startswith("image/"):
+        raise HTTPException(400, "O ficheiro tem de ser uma imagem.")
+    conteudo = await ficheiro.read()
+    if len(conteudo) > 5 * 1024 * 1024:
+        raise HTTPException(413, "Imagem demasiado grande (máx. 5 MB).")
+    import base64
+    img = ImagemInvento(
+        id_imagem=str(uuid.uuid4()), id_caderno=id_caderno,
+        nome_ficheiro=ficheiro.filename or "imagem", tipo_mime=ficheiro.content_type,
+        legenda=legenda, dados_base64=base64.b64encode(conteudo).decode("ascii"),
+        carregado_por=u.email, criado_em=agora_wat().isoformat(),
+    )
+    db.add(img); db.commit()
+    return {"id_imagem": img.id_imagem, "nome_ficheiro": img.nome_ficheiro,
+            "legenda": img.legenda, "mensagem": "Imagem do invento carregada."}
+
+
+@app.get("/cadernos/{id_caderno}/imagens", tags=["Imagens"])
+def listar_imagens(id_caderno: str, db: Session = Depends(get_db),
+                   _: Utilizador = Depends(utilizador_actual)):
+    if not db.get(Caderno, id_caderno):
+        raise HTTPException(404, "Caderno não encontrado.")
+    imgs = db.query(ImagemInvento).filter(ImagemInvento.id_caderno == id_caderno).all()
+    return [{"id_imagem": i.id_imagem, "nome_ficheiro": i.nome_ficheiro,
+             "tipo_mime": i.tipo_mime, "legenda": i.legenda,
+             "data_uri": f"data:{i.tipo_mime};base64,{i.dados_base64}",
+             "carregado_por": i.carregado_por, "criado_em": i.criado_em} for i in imgs]
+
+
+@app.delete("/imagens/{id_imagem}", tags=["Imagens"])
+def apagar_imagem(id_imagem: str, db: Session = Depends(get_db),
+                  u: Utilizador = Depends(utilizador_actual)):
+    img = db.get(ImagemInvento, id_imagem)
+    if not img:
+        raise HTTPException(404, "Imagem não encontrada.")
+    db.delete(img); db.commit()
+    return {"id_imagem": id_imagem, "eliminada": True}
+
+
+# ----------------------- Custos da invenção --------------------------------
+@app.post("/cadernos/{id_caderno}/custos", tags=["Custos"], status_code=201)
+def adicionar_custo(id_caderno: str, dados: CustoIn, db: Session = Depends(get_db),
+                    u: Utilizador = Depends(utilizador_actual)):
+    """Regista um custo da invenção (do início à finalização)."""
+    if not db.get(Caderno, id_caderno):
+        raise HTTPException(404, "Caderno não encontrado.")
+    custo = CustoInvento(
+        id_custo=str(uuid.uuid4()), id_caderno=id_caderno, descricao=dados.descricao,
+        categoria=dados.categoria, valor=f"{dados.valor:.2f}", moeda=dados.moeda,
+        data_despesa=dados.data_despesa, fase=dados.fase,
+        registado_por=u.email, criado_em=agora_wat().isoformat(),
+    )
+    db.add(custo); db.commit()
+    return {"id_custo": custo.id_custo, "mensagem": "Custo registado."}
+
+
+@app.get("/cadernos/{id_caderno}/custos", tags=["Custos"])
+def listar_custos(id_caderno: str, db: Session = Depends(get_db),
+                  _: Utilizador = Depends(utilizador_actual)):
+    if not db.get(Caderno, id_caderno):
+        raise HTTPException(404, "Caderno não encontrado.")
+    custos = db.query(CustoInvento).filter(CustoInvento.id_caderno == id_caderno).order_by(
+        CustoInvento.data_despesa).all()
+    lista = [{"id_custo": c.id_custo, "descricao": c.descricao, "categoria": c.categoria,
+              "valor": float(c.valor), "moeda": c.moeda, "data_despesa": c.data_despesa,
+              "fase": c.fase, "registado_por": c.registado_por} for c in custos]
+    total = sum(x["valor"] for x in lista)
+    por_fase, por_categoria = {}, {}
+    for x in lista:
+        por_fase[x["fase"]] = por_fase.get(x["fase"], 0) + x["valor"]
+        por_categoria[x["categoria"]] = por_categoria.get(x["categoria"], 0) + x["valor"]
+    moeda = lista[0]["moeda"] if lista else "AOA"
+    return {"custos": lista, "total": round(total, 2), "moeda": moeda,
+            "total_por_fase": {k: round(v, 2) for k, v in por_fase.items()},
+            "total_por_categoria": {k: round(v, 2) for k, v in por_categoria.items()}}
+
+
+@app.delete("/custos/{id_custo}", tags=["Custos"])
+def apagar_custo(id_custo: str, db: Session = Depends(get_db),
+                 u: Utilizador = Depends(utilizador_actual)):
+    c = db.get(CustoInvento, id_custo)
+    if not c:
+        raise HTTPException(404, "Custo não encontrado.")
+    db.delete(c); db.commit()
+    return {"id_custo": id_custo, "eliminado": True}
+
+
+# ---------------- Importação de dados a partir de Excel (PC) ----------------
+@app.post("/cadernos/{id_caderno}/importar/excel", tags=["Importação"])
+async def importar_entradas_excel(id_caderno: str, ficheiro: UploadFile = File(...),
+                                  db: Session = Depends(get_db),
+                                  u: Utilizador = Depends(utilizador_actual)):
+    """
+    Importa entradas científicas a partir de um ficheiro Excel (.xlsx) do PC.
+    Colunas esperadas (linha 1 = cabeçalho), nesta ordem ou por nome:
+      Data Registo | Metodologia | Resultados Brutos | Link Repositorio (opcional)
+    Idempotente: linhas cujo conteúdo gera um hash já existente são ignoradas.
+    """
+    if not db.get(Caderno, id_caderno):
+        raise HTTPException(404, "Caderno não encontrado.")
+    if not (ficheiro.filename or "").lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(400, "Envie um ficheiro Excel (.xlsx).")
+    from openpyxl import load_workbook
+    conteudo = await ficheiro.read()
+    try:
+        wb = load_workbook(io.BytesIO(conteudo), data_only=True)
+    except Exception:
+        raise HTTPException(400, "Não foi possível ler o ficheiro Excel.")
+    ws = wb.active
+
+    # Mapeia cabeçalhos (tolerante a maiúsculas/acentos básicos)
+    def norm(s):
+        return (str(s or "")).strip().lower()
+    cabec = [norm(c.value) for c in ws[1]] if ws.max_row >= 1 else []
+    def col(*nomes):
+        for n in nomes:
+            if n in cabec:
+                return cabec.index(n)
+        return None
+    i_data = col("data registo", "data_registo", "data")
+    i_met = col("metodologia")
+    i_res = col("resultados brutos", "resultados_brutos", "resultados")
+    i_link = col("link repositorio", "link_repositorio", "link repositório", "link")
+
+    novas, ignoradas, erros = 0, 0, []
+    for n_linha, linha in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        def get(idx):
+            return linha[idx] if idx is not None and idx < len(linha) else None
+        metodologia = get(i_met) if i_met is not None else (linha[1] if len(linha) > 1 else None)
+        resultados = get(i_res) if i_res is not None else (linha[2] if len(linha) > 2 else None)
+        if not metodologia and not resultados:
+            continue
+        data_registo = get(i_data) if i_data is not None else (linha[0] if linha else None)
+        if hasattr(data_registo, "isoformat"):
+            data_registo = data_registo.isoformat()
+        data_registo = str(data_registo) if data_registo else agora_wat().isoformat()
+        link = get(i_link)
+        link = str(link) if link else None
+        metodologia = str(metodologia or "").strip()
+        resultados = str(resultados or "").strip()
+        if not metodologia or not resultados:
+            erros.append(f"Linha {n_linha}: metodologia/resultados em falta.")
+            continue
+        h = calcular_hash_entrada(id_caderno, data_registo, metodologia, resultados, link)
+        if db.query(EntradaCientifica).filter(EntradaCientifica.hash_seguranca == h).first():
+            ignoradas += 1
+            continue
+        anterior = (db.query(EntradaCientifica)
+                    .filter(EntradaCientifica.id_caderno == id_caderno)
+                    .order_by(EntradaCientifica.criado_em.desc()).first())
+        db.add(EntradaCientifica(
+            id_entrada=str(uuid.uuid4()), id_caderno=id_caderno, data_registo=data_registo,
+            metodologia=metodologia, resultados_brutos=resultados,
+            link_repositorio_codigo=link, hash_seguranca=h,
+            hash_anterior=anterior.hash_seguranca if anterior else None,
+            assinatura_digital_investigador=assinar(u.email, h),
+            origem_registo="EXCEL_SYNC", criado_em=agora_wat().isoformat(),
+        ))
+        novas += 1
+    caderno = db.get(Caderno, id_caderno)
+    caderno.actualizado_em = agora_wat().isoformat()
+    db.add(LogSincronizacao(
+        id_sync=str(uuid.uuid4()), id_utilizador=u.id_utilizador,
+        data_sync=agora_wat().isoformat(), entradas_novas=novas, duplicados=ignoradas,
+        alertas_hash=0, ficheiro_origem=ficheiro.filename,
+        detalhes=json.dumps({"erros": erros}, ensure_ascii=False),
+    ))
+    db.commit()
+    return {"ficheiro": ficheiro.filename, "entradas_novas": novas,
+            "ignoradas_duplicadas": ignoradas, "erros": erros}
+
+
 # --------------------------- Exportação Excel -------------------------------
 @app.get("/cadernos/export/excel", tags=["Exportação"])
 def exportar_excel(db: Session = Depends(get_db), _: Utilizador = Depends(exigir_diretor)):
@@ -436,26 +794,36 @@ def exportar_excel(db: Session = Depends(get_db), _: Utilizador = Depends(exigir
     ws1 = wb.active
     ws1.title = "Cadernos"
     cols1 = ["ID_Caderno", "Código LTDP", "Título da Invenção", "Investigador Principal",
-             "Área Tecnológica", "Data Início", "Status TRL", "Código Patente Previsto",
-             "Estado", "Localização", "Fuso Horário"]
+             "Outros Participantes", "Telefone", "Área Tecnológica", "Data Início",
+             "Status TRL", "Código Patente Previsto", "Estado", "Localização", "Fuso Horário"]
     ws1.append(cols1)
     for c in db.query(Caderno).all():
         ws1.append([c.id_caderno, c.codigo_ltdp, c.titulo_invencao, c.investigador_principal,
+                    c.participantes_adicionais, c.telefone_contacto,
                     c.area_tecnologica, c.data_inicio, c.status_trl, c.codigo_patente_previsto,
                     c.estado, c.localizacao, c.fuso_horario])
 
     ws2 = wb.create_sheet("Entradas_Cientificas")
     cols2 = ["ID_Entrada", "ID_Caderno", "Data Registo", "Metodologia", "Resultados Brutos",
              "Link Repositório", "Hash SHA-256", "Hash Anterior", "Assinatura Investigador",
-             "Assinatura Testemunha", "Origem"]
+             "Assinatura Testemunha", "Origem", "Anulada", "Editada Por", "Motivo Alteração"]
     ws2.append(cols2)
     for e in db.query(EntradaCientifica).order_by(EntradaCientifica.data_registo).all():
         ws2.append([e.id_entrada, e.id_caderno, e.data_registo, e.metodologia,
                     e.resultados_brutos, e.link_repositorio_codigo, e.hash_seguranca,
                     e.hash_anterior, e.assinatura_digital_investigador,
-                    e.assinatura_testemunha, e.origem_registo])
+                    e.assinatura_testemunha, e.origem_registo,
+                    "SIM" if (e.anulada or 0) else "", e.editada_por or "", e.motivo_alteracao or ""])
 
-    for ws, cols in ((ws1, cols1), (ws2, cols2)):
+    ws3 = wb.create_sheet("Custos")
+    cols3 = ["ID_Custo", "ID_Caderno", "Descrição", "Categoria", "Valor", "Moeda",
+             "Data Despesa", "Fase", "Registado Por"]
+    ws3.append(cols3)
+    for k in db.query(CustoInvento).order_by(CustoInvento.id_caderno, CustoInvento.data_despesa).all():
+        ws3.append([k.id_custo, k.id_caderno, k.descricao, k.categoria, float(k.valor),
+                    k.moeda, k.data_despesa, k.fase, k.registado_por])
+
+    for ws, cols in ((ws1, cols1), (ws2, cols2), (ws3, cols3)):
         for i, _c in enumerate(cols, 1):
             cel = ws.cell(row=1, column=i)
             cel.fill, cel.font = azul, cab
